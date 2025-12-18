@@ -93,11 +93,11 @@ def extract_product_data_llm(text: str, filename: str) -> List[Product]:
 
     prompt = f"""
     You are an expert technical data extractor. 
-    Analyze the following text from an antenna datasheet and extract ALL product specifications.
+    Analyze the following text from an antenna datasheet and extract EVERY technical characteristic described.
     
     The text may contain multiple products. For EACH product found:
     1. Identify the product name.
-    2. Extract every technical characteristic listed (Frequency, Gain, VSWR, Dimensions, Weight, Mass, Connector, etc.) as key-value pairs.
+    2. Extract ALL technical characteristics listed (Frequency, Gain, VSWR, Dimensions, Weight, Mass, Connector, Materials, Temperature, etc.) as key-value pairs.
     3. Ensure "Weight" or "Mass" is extracted if present.
     
     Input Text:
@@ -230,10 +230,16 @@ def main():
             
             if weight_in_grams is not None and weight_in_grams < args.weight_limit:
                 console.print(f"  [success]MATCH:[/success] {product.name} ({weight_in_grams}g)")
+                
+                # Transform characteristics to the requested format: [{"Key": "Value"}, ...]
+                refined_characteristics = []
+                for char in product.characteristics:
+                    refined_characteristics.append({char.name: char.value})
+
                 filtered_products.append({
                     "name": product.name,
                     "file": product.file,
-                    "characteristics": [c.model_dump() for c in product.characteristics]
+                    "characteristics": refined_characteristics
                 })
 
         # Small delay to be nice to the API
