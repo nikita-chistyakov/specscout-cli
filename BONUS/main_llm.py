@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import List, Optional
 import fitz  # PyMuPDF
-from google import genai
+from openai import OpenAI
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from rich.console import Console
@@ -79,17 +79,16 @@ def has_weight_spec(text: str) -> bool:
 
 def extract_product_data_llm(text: str, filename: str) -> List[Product]:
     """
-    Use Gemini to parse product specifications from raw text.
+    Use OpenAI to parse product specifications from raw text.
     """
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        console.print("[error]GEMINI_API_KEY not found in environment variables![/error]")
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key or api_key == "your_openai_api_key_here":
+        console.print("[error]OPENAI_API_KEY not found or not set in environment variables![/error]")
         return []
 
-    client = genai.Client(api_key=api_key)
+    client = OpenAI(api_key=api_key)
 
     # Optimization: Truncate text to a reasonable size for extraction
-    # Most specs are in the first few pages.
     truncated_text = text[:8000]
 
     prompt = f"""
@@ -103,42 +102,32 @@ def extract_product_data_llm(text: str, filename: str) -> List[Product]:
     
     Input Text:
     {truncated_text}
-    
-    Output JSON format:
-    {{
-        "products": [
-            {{
-                "name": "Product Name",
-                "file": "{filename}",
-                "characteristics": [
-                    {{"name": "Frequency", "value": "2.4 GHz"}},
-                    {{"name": "Weight", "value": "50 g"}}
-                ]
-            }}
-        ]
-    }}
     """
 
     base_delay = 2
     while True:
         try:
-            console.print(f"[dim]Requesting LLM extraction for {filename}...[/dim]")
-            response = client.models.generate_content(
-                model='gemini-2.0-flash',
-                contents=prompt,
-                config={
-                    'response_mime_type': 'application/json',
-                    'response_schema': ProductList,
-                },
+            console.print(f"[dim]Requesting OpenAI extraction for {filename}...[/dim]")
+            completion = client.beta.chat.completions.parse(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": "You are a technical data extraction assistant."},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format=ProductList,
             )
             
-            # Parse the response using Pydantic for validation
-            product_list = ProductList.model_validate_json(response.text)
+            product_list = completion.choices[0].message.parsed
+            
+            # Ensure the filename is correctly set for each product
+            for product in product_list.products:
+                product.file = filename
+                
             return product_list.products
 
         except Exception as e:
             error_str = str(e)
-            if "429" in error_str or "quota" in error_str.lower() or "resource_exhausted" in error_str.lower():
+            if "429" in error_str or "rate_limit" in error_str.lower():
                  console.print(f"[yellow]Rate limit exceeded for {filename}. Waiting 60s...[/yellow]")
                  time.sleep(60)
                  continue
@@ -165,7 +154,7 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
     return text
 
 def main():
-    parser = argparse.ArgumentParser(description="Antenna PDF Spec Processor (LLM Version)")
+    parser = argparse.ArgumentParser(description="Antenna PDF Spec Processor (OpenAI Version)")
     parser.add_argument("dir", help="Directory containing PDF files")
     parser.add_argument("-w", "--weight_limit", type=float, required=True, help="Upper bound weight in grams")
     parser.add_argument("-t", "--test", action="store_true", help="Process only 1 PDF for testing")
@@ -175,7 +164,7 @@ def main():
         console.print(f"[error]Error: {args.dir} is not a valid directory.[/error]")
         return
 
-    console.print(f"[header]Starting Optimized LLM-Enhanced SpecScout CLI[/header]")
+    console.print(f"[header]Starting Optimized OpenAI-Enhanced SpecScout CLI[/header]")
     console.print(f"Scanning directory: [info]{args.dir}[/info]")
 
     # --- Step 2: Sanity Check (Only PDFs & Remove Duplicates) ---
@@ -229,12 +218,14 @@ def main():
         
         for product in products:
             weight_in_grams = None
-            # Semantic weight matching: look for characteristics named "Weight" or "Mass"
+            # Semantic weight matching: look for characteristics containing "Weight" or "Mass"
             for char in product.characteristics:
-                if char.name.lower() in ["weight", "mass"]:
+                char_name_lower = char.name.lower()
+                if "weight" in char_name_lower or "mass" in char_name_lower:
                     grams = normalize_to_grams(char.value)
                     if grams is not None:
                         weight_in_grams = grams
+                        # If we find a weight, we can stop looking for this product
                         break
             
             if weight_in_grams is not None and weight_in_grams < args.weight_limit:
@@ -245,8 +236,8 @@ def main():
                     "characteristics": [c.model_dump() for c in product.characteristics]
                 })
 
-        # Rate limit friendly delay
-        time.sleep(2)
+        # Small delay to be nice to the API
+        time.sleep(1)
 
     # Output final results
     console.print(f"\n[header]--- Processed Results (Lighter than {args.weight_limit}g) ---[/header]")
