@@ -4,6 +4,18 @@ import json
 import argparse
 import hashlib
 import fitz  # PyMuPDF
+from rich.console import Console
+from rich.theme import Theme
+
+# Initialize Rich Console with a custom theme
+custom_theme = Theme({
+    "info": "cyan",
+    "warning": "yellow",
+    "error": "bold red",
+    "success": "bold green",
+    "header": "bold blue underline"
+})
+console = Console(theme=custom_theme)
 
 def get_file_hash(filepath):
     """Generate a SHA-256 hash to identify duplicate files by content."""
@@ -48,7 +60,6 @@ def extract_product_data(pdf_path):
         product_name = lines[0] if lines else "Unknown Product"
         
         # Identify characteristics using a Key: Value pattern
-        # This regex looks for lines that look like "Label: Value"
         char_pattern = re.compile(r'^([\w\s/().-]+):\s*(.*)$', re.MULTILINE)
         matches = char_pattern.findall(full_text)
         
@@ -67,7 +78,7 @@ def extract_product_data(pdf_path):
                 if grams is not None and weight_in_grams is None:
                     weight_in_grams = grams
 
-        # Fallback for weight if not found in "Key: Value" format (e.g. multi-line)
+        # Fallback for weight if not found in "Key: Value" format
         if weight_in_grams is None:
             for keyword in keywords:
                 for m in re.finditer(re.escape(keyword), full_text, re.IGNORECASE):
@@ -75,7 +86,6 @@ def extract_product_data(pdf_path):
                     grams = normalize_to_grams(look_ahead)
                     if grams is not None:
                         weight_in_grams = grams
-                        # Add to characteristics if not already there
                         characteristics.append({keyword.capitalize(): look_ahead.strip().split('\n')[0]})
                         break
                 if weight_in_grams is not None:
@@ -88,7 +98,7 @@ def extract_product_data(pdf_path):
             "weight_grams": weight_in_grams
         }
     except Exception as e:
-        print(f"Error processing {pdf_path}: {e}")
+        console.print(f"[error]Error processing {pdf_path}: {e}[/error]")
         return None
 
 def main():
@@ -99,10 +109,10 @@ def main():
     args = parser.parse_args()
 
     if not os.path.isdir(args.dir):
-        print(f"Error: {args.dir} is not a valid directory.")
+        console.print(f"[error]Error: {args.dir} is not a valid directory.[/error]")
         return
 
-    print(f"Scanning directory: {args.dir}")
+    console.print(f"[header]Scanning directory:[/header] [info]{args.dir}[/info]")
 
     # --- Step 2: Sanity Check (Only PDFs & Remove Duplicates) ---
     seen_hashes = set()
@@ -117,24 +127,23 @@ def main():
             seen_hashes.add(f_hash)
             unique_files.append(path)
     
-    print(f"Found {len(unique_files)} unique PDFs.")
+    console.print(f"[success]Found {len(unique_files)} unique PDFs.[/success]")
 
     if args.test and unique_files:
         unique_files = unique_files[:1]
-        print(f"--- TEST MODE ACTIVE: Processing {os.path.basename(unique_files[0])} ---")
+        console.print(f"[warning]--- TEST MODE ACTIVE: Processing {os.path.basename(unique_files[0])} ---[/warning]")
 
     # --- Step 3 & 4: Extraction and Filtering ---
     filtered_products = []
 
     for pdf_path in unique_files:
-        print(f"Processing {os.path.basename(pdf_path)}...")
+        console.print(f"[info]Processing {os.path.basename(pdf_path)}...[/info]")
         data = extract_product_data(pdf_path)
         if not data:
             continue
 
         if data["weight_grams"] is not None and data["weight_grams"] < args.weight_limit:
-            print(f"  MATCH: {data['name']} ({data['weight_grams']}g)")
-            # Format to match Step 3 specifications
+            console.print(f"  [success]MATCH:[/success] {data['name']} ({data['weight_grams']}g)")
             filtered_products.append({
                 "name": data["name"],
                 "file": data["file"],
@@ -142,16 +151,23 @@ def main():
             })
 
     # Output final results
-    print("\n--- Processed Results (Lighter than {}g) ---".format(args.weight_limit))
+    console.print(f"\n[header]--- Processed Results (Lighter than {args.weight_limit}g) ---[/header]")
     formatted_json = json.dumps(filtered_products, indent=4)
-    print(formatted_json)
+    console.print(formatted_json)
+
+    # Summary message
+    match_count = len(filtered_products)
+    if match_count > 0:
+        console.print(f"\n[success]Found {match_count} antenna(s) matching the weight requirement.[/success]")
+    else:
+        console.print(f"\n[warning]No antennas found matching the weight requirement.[/warning]")
 
     # Save to a file
     output_file = "filtered_products.json"
     with open(output_file, "w") as f:
         f.write(formatted_json)
     
-    print(f"\nResults saved to: {os.path.abspath(output_file)}")
+    console.print(f"\n[info]Results saved to: {os.path.abspath(output_file)}[/info]")
 
 if __name__ == "__main__":
     main()
