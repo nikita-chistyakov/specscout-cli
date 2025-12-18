@@ -68,6 +68,15 @@ def normalize_to_grams(value_str):
         return value * 1000
     return value
 
+def has_weight_spec(text: str) -> bool:
+    """
+    Quickly check if the text contains weight or mass keywords using regex.
+    This helps avoid unnecessary LLM calls.
+    """
+    # Look for "weight" or "mass" followed by some text and a number/unit
+    pattern = r'(weight|mass)\s*[:\-]?\s*[<>]?\s*[\d\.]+\s*(kg|g)\b'
+    return bool(re.search(pattern, text, re.IGNORECASE))
+
 def extract_product_data_llm(text: str, filename: str) -> List[Product]:
     """
     Use Gemini to parse product specifications from raw text.
@@ -79,6 +88,10 @@ def extract_product_data_llm(text: str, filename: str) -> List[Product]:
 
     client = genai.Client(api_key=api_key)
 
+    # Optimization: Truncate text to a reasonable size for extraction
+    # Most specs are in the first few pages.
+    truncated_text = text[:8000]
+
     prompt = f"""
     You are an expert technical data extractor. 
     Analyze the following text from an antenna datasheet and extract ALL product specifications.
@@ -89,7 +102,7 @@ def extract_product_data_llm(text: str, filename: str) -> List[Product]:
     3. Ensure "Weight" or "Mass" is extracted if present.
     
     Input Text:
-    {text[:10000]}  # Truncate to avoid context limit if extremely large
+    {truncated_text}
     
     Output JSON format:
     {{
@@ -126,13 +139,14 @@ def extract_product_data_llm(text: str, filename: str) -> List[Product]:
         except Exception as e:
             error_str = str(e)
             if "429" in error_str or "quota" in error_str.lower() or "resource_exhausted" in error_str.lower():
-                 console.print(f"[yellow]Rate limit exceeded. Waiting 60s...[/yellow]")
+                 console.print(f"[yellow]Rate limit exceeded for {filename}. Waiting 60s...[/yellow]")
                  time.sleep(60)
                  continue
             
             if "503" in error_str or "overloaded" in error_str.lower():
                 console.print(f"[yellow]Model overloaded. Retrying in {base_delay}s...[/yellow]")
                 time.sleep(base_delay)
+                base_delay *= 2 # Exponential backoff
                 continue
 
             console.print(f"[error]LLM Extraction failed for {filename}: {e}[/error]")
@@ -161,7 +175,7 @@ def main():
         console.print(f"[error]Error: {args.dir} is not a valid directory.[/error]")
         return
 
-    console.print(f"[header]Starting LLM-Enhanced SpecScout CLI[/header]")
+    console.print(f"[header]Starting Optimized LLM-Enhanced SpecScout CLI[/header]")
     console.print(f"Scanning directory: [info]{args.dir}[/info]")
 
     # --- Step 2: Sanity Check (Only PDFs & Remove Duplicates) ---
@@ -180,20 +194,38 @@ def main():
     console.print(f"[success]Found {len(unique_files)} unique PDFs.[/success]")
 
     if args.test and unique_files:
-        unique_files = unique_files[:1]
-        console.print(f"[warning]--- TEST MODE ACTIVE: Processing {os.path.basename(unique_files[0])} ---[/warning]")
+        # Optimization for test mode: find the first file that actually has weight specs
+        test_file = None
+        for path in unique_files:
+            text = extract_text_from_pdf(Path(path))
+            if has_weight_spec(text):
+                test_file = path
+                break
+        
+        if test_file:
+            unique_files = [test_file]
+            console.print(f"[warning]--- TEST MODE ACTIVE: Processing {os.path.basename(test_file)} (contains weight specs) ---[/warning]")
+        else:
+            unique_files = unique_files[:1]
+            console.print(f"[warning]--- TEST MODE ACTIVE: No file with weight specs found, processing {os.path.basename(unique_files[0])} ---[/warning]")
 
     # --- Step 3 & 4: Extraction and Filtering ---
     filtered_products = []
 
     for pdf_path in unique_files:
-        console.print(f"[info]Processing {os.path.basename(pdf_path)}...[/info]")
+        filename = os.path.basename(pdf_path)
+        console.print(f"[info]Processing {filename}...[/info]")
         text = extract_text_from_pdf(Path(pdf_path))
         if not text:
             continue
 
+        # Optimization: Pre-filter using regex
+        if not has_weight_spec(text):
+            console.print(f"  [dim]Skipping {filename}: No weight/mass specifications found via pre-scan.[/dim]")
+            continue
+
         # LLM Extraction
-        products = extract_product_data_llm(text, os.path.basename(pdf_path))
+        products = extract_product_data_llm(text, filename)
         
         for product in products:
             weight_in_grams = None
