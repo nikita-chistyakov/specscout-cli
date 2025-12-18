@@ -1,2 +1,5 @@
 pymupdf==1.23.26
 rich
+google-genai
+pydantic
+python-dotenv
