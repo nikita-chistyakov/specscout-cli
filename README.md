@@ -11,6 +11,10 @@ SpecScout CLI is a powerful tool designed to scan PDF datasheets for antennas an
 - **LLM-Enhanced Extraction (Bonus)**: Uses OpenAI's GPT-4o-mini to semantically understand and extract *all* technical characteristics from datasheets.
 - **Pre-filtering Optimization**: The LLM version includes a regex pre-scan to skip irrelevant files, saving API quota.
 - **Structured JSON Output**: Generates a clean JSON file containing matched products and their characteristics.
+- **Modular Architecture**: Clean and well-structured code with logic separated into specialized modules.
+- **Centralized Utilities**: Common logic (hashing, normalization) and custom exceptions are centralized in `utils.py` for better maintainability.
+- **Robust Error Handling**: Comprehensive error handling with custom exceptions and informative feedback.
+- **Type Safety**: Fully type-hinted codebase for better developer experience and reliability.
 
 ## Installation
 
