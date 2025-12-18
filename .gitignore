@@ -1,0 +1,7 @@
+data/
+exercice.txt
+WIP/
+filtered_products.json
+.DS_Store
+__pycache__/
+*.pyc
