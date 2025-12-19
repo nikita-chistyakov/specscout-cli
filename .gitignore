@@ -7,3 +7,4 @@ __pycache__/
 *.pyc
 .env
 SpecScout_Base_Functions.md
+BONUS/filtered_products_llm.json
