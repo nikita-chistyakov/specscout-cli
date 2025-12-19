@@ -6,3 +6,4 @@ filtered_products.json
 __pycache__/
 *.pyc
 .env
+SpecScout_Base_Functions.md
