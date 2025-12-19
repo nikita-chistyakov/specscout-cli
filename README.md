@@ -24,7 +24,13 @@ SpecScout CLI is a powerful tool designed to scan PDF datasheets for antennas an
    cd specscout-cli
    ```
 
-2. Install dependencies:
+2. Set up a virtual environment (recommended):
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate  # On Windows use: venv\Scripts\activate
+   ```
+
+3. Install dependencies:
    ```bash
    pip install -r requirements.txt
    ```
